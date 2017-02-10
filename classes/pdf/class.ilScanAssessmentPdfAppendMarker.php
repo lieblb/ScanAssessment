@@ -4,11 +4,13 @@ ilScanAssessmentPlugin::getInstance()->includeClass('pdf/class.ilScanAssessmentP
 ilScanAssessmentPlugin::getInstance()->includeClass('pdf/class.ilScanAssessmentPdfHeaderForm.php');
 ilScanAssessmentPlugin::getInstance()->includeClass('scanner/geometry/class.ilScanAssessmentVector.php');
 
+require_once 'Services/PDFGeneration/classes/tcpdf/tcpdf.php';
+
 /**
  * Class ilPDFAppendMarker
  * @author Guido Vollbach <gvollbach@databay.de>
  */
-class ilPDFAppendMarker extends TCPDF{
+class ilPDFAppendMarker extends TCPDF {
 
 	
 	/**
