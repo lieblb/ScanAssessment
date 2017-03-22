@@ -347,6 +347,10 @@ class ilScanAssessmentScanProcess
 				$scan_answer_object = $this->detectAnswers($marker, $qr_pos, $log, $qr_code);
 				$this->processAnswers($scan_answer_object, $qr_code, $scanner);
 			}
+			else
+			{
+				$this->getAnalysingFolder();
+			}
 			if($qr_code != false || !$not_cropped)
 			{
 				$done = $this->path_to_done . '/' . $entry;
