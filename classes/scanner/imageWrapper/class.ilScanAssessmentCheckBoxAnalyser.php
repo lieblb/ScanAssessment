@@ -8,8 +8,10 @@ class ilScanAssessmentCheckBoxAnalyser
     private $image;
 	private $pixels;
 	private $bounding_box;
+	private $threshold;
+	private $coverage;
 
-	public function rightmost() 
+	public function rightmost()
 	{
 		$x = PHP_INT_MIN;
 		$y = 0;
@@ -25,6 +27,9 @@ class ilScanAssessmentCheckBoxAnalyser
 
 	public function __construct($image, $x, $y, $threshold)
 	{
+	    $this->threshold = $threshold;
+	    $this->coverage = 0.75;
+
 		$pixels = array();
 		self::gatherPixels($image, $x, $y, $threshold, $pixels);
 		$this->pixels = $pixels;
@@ -34,7 +39,7 @@ class ilScanAssessmentCheckBoxAnalyser
 		$this->image = $image;
 	}
 	
-	static function  grey($image, $x, $y) {
+	private static function grey($image, $x, $y) {
 		$color = imagecolorat($image, $x, $y);
 
 		$blue	= 0x0000ff & $color;
@@ -106,98 +111,210 @@ class ilScanAssessmentCheckBoxAnalyser
 			array_push($y, $pixel[1]);
 		}
 
-		if(count($x) > 0 && count($y) >0)
-		{
-			return array(array(min($x), min($y)), array(max($x), max($y)));
-		}
+		if (count($x) > 0 && count($y) > 0) {
+			return array(min($x), min($y), max($x), max($y));
+		} else {
+		    return false;
+        }
 	}
 
-	public function getBoundingBox() {
-		return $this->bounding_box;
-	}
+	private function testLine($pixel, $k0, $k1) {
+        $threshold = $this->threshold;
+        $coverage = $this->coverage;
 
-	public function detectRectangle($threshold) {
-		list($min, $max) = $this->bounding_box;
+        $total = (float)($k1 - $k0 + 1);
 
-		list($x0, $y0) = $min;
-		list($x1, $y1) = $max;
+        $n = 0;
+        for ($k = $k0; $k <= $k1; $k++) {
+            if ($pixel($k) < $threshold) {
+                $n++;
+            }
 
-        // return array(array($x0, $y0), array($x1, $y1));
+            // early exit: even if all remaining pixels turn
+            // out to be good, can the coverage be reached?
+            $r = $k1 - $k;
+            if (($n + $r) / $total < $coverage) {
+               return false;
+            }
+        }
 
-		$w = 1 + $x1 - $x0;
-		$h = 1 + $y1 - $y0;
+        return $n / $total >= $coverage;
+    }
 
-        $err = 0.75;
+    private function testHorizontalLine($x0, $x1, $y) {
         $image = $this->image;
+	    return $this->testLine(function($k) use ($image, $y) {
+	        return self::grey($image, $k, $y);
+        }, $x0, $x1);
+    }
 
-		while (true) {
-			$n = 0;
-			for ($y = $y0; $y <= $y1; $y++) {
-			    if (self::grey($image, $x0, $y) < $threshold) {
-			        $n++;
-                }
-			}
-			if ($n / (float)$h < $err) {
-				$x0 += 1;
-				if ($x0 >= $x1) {
-					return false;
-				}
-			} else {
-				break;
-			}
-		}
+    private function testVerticalLine($x, $y0, $y1) {
+	    $image = $this->image;
+        return $this->testLine(function($k) use ($image, $x) {
+            return self::grey($image, $x, $k);
+        }, $y0, $y1);
+    }
 
-		while (true) {
-            $n = 0;
-			for ($y = $y0; $y <= $y1; $y++) {
-                if (self::grey($image, $x1, $y) < $threshold) {
-                    $n++;
-                }
-			}
-            if ($n / (float)$h < $err) {
-				$x1 -= 1;
-				if ($x0 >= $x1) {
-					return false;
-				}
-			} else {
-				break;
-			}
-		}
+    private function testRectangleError($x0, $y0, $x1, $y1) {
+        if (!$this->testHorizontalLine($x0, $x1, $y0)) {
+            return 'top';
+        }
+        if (!$this->testHorizontalLine($x0, $x1, $y1)) {
+            return 'bottom';
+        }
+        if (!$this->testVerticalLine($x0, $y0, $y1)) {
+            return 'left';
+        }
+        if (!$this->testVerticalLine($x1, $y0, $y1)) {
+            return 'right';
+        }
+        return false;
+    }
 
-		while (true) {
-            $n = 0;
-			for ($x = $x0; $x <= $x1; $x++) {
-                if (self::grey($image, $x, $y0) < $threshold) {
-                    $n++;
-                }
-			}
-            if ($n / (float)$w < $err) {
-				$y0 += 1;
-				if ($y0 >= $y1) {
-					return false;
-				}
-			} else {
-				break;
-			}
-		}
+    private function clipLeft($x0, $y0, $x1, $y1) {
+        while (true) {
+            $x0 += 1;
 
-		while (true) {
-            $n = 0;
-			for ($x = $x0; $x <= $x1; $x++) {
-                if (self::grey($image, $x, $y1) < $threshold) {
-                    $n++;
-                }
-			}
-            if ($n / (float)$w < $err) {
-				$y1 -= 1;
-				if ($y0 >= $y1) {
-					return false;
-				}
-			} else {
-				break;
-			}
-		}
+            if ($x0 >= $x1) {
+                return false;
+            }
 
-		return array(array($x0, $y0), array($x1, $y1));
-	}
+            if ($this->testVerticalLine($x0, $y0, $y1)) {
+                return $x0;
+            }
+        }
+    }
+
+    private function clipRight($x0, $y0, $x1, $y1) {
+        while (true) {
+            $x1 -= 1;
+
+            if ($x0 >= $x1) {
+                return false;
+            }
+
+            if ($this->testVerticalLine($x1, $y0, $y1)) {
+                return $x1;
+            }
+        }
+    }
+
+    private function clipTop($x0, $y0, $x1, $y1) {
+        while (true) {
+            $y0 += 1;
+
+            if ($y0 >= $y1) {
+                return false;
+            }
+
+            if ($this->testHorizontalLine($x0, $x1, $y0)) {
+                return $y0;
+            }
+        }
+    }
+
+    private function clipBottom($x0, $y0, $x1, $y1) {
+        while (true) {
+            $y1 -= 1;
+
+            if ($y0 >= $y1) {
+                return false;
+            }
+
+            if ($this->testHorizontalLine($x0, $x1, $y1)) {
+                return $y1;
+            }
+        }
+    }
+
+    public function detectRectangle() {
+	    $nodes = array();
+
+	    if ($this->bounding_box) {
+	        array_push($nodes, $this->bounding_box);
+        }
+
+	    while (!empty($nodes)) {
+            list($x0, $y0, $x1, $y1) = array_pop($nodes);
+
+            $fail = $this->testRectangleError($x0, $y0, $x1, $y1);
+
+            if ($fail === false) {
+                return array($x0, $y0, $x1, $y1);
+            }
+
+            // note that we add the nodes in inverse order of intended traversal, as
+            // they are fetched via array_pop() for reasons of efficiency.
+
+            switch ($fail) {
+                case 'left':
+                case 'right':
+                    $y0_clipped = $this->clipTop($x0, $y0, $x1, $y1);
+                    $y1_clipped = $this->clipBottom($x0, $y0, $x1, $y1);
+                    if ($y0_clipped !== false && $y1_clipped !== false) {
+                        array_push($nodes, array($x0, $y0_clipped, $x1, $y1_clipped));
+                    }
+                    if ($y1_clipped !== false) {
+                        array_push($nodes, array($x0, $y0, $x1, $y1_clipped));
+                    }
+                    if ($y0_clipped !== false) {
+                        array_push($nodes, array($x0, $y0_clipped, $x1, $y1));
+                    }
+                    break;
+
+                case 'top':
+                case 'bottom':
+                    $x0_clipped = $this->clipLeft($x0, $y0, $x1, $y1);
+                    $x1_clipped = $this->clipRight($x0, $y0, $x1, $y1);
+                    if ($x0_clipped !== false && $x1_clipped !== false) {
+                        array_push($nodes, array($x0_clipped, $y0, $x1_clipped, $y1));
+                    }
+                    if ($x1_clipped !== false) {
+                        array_push($nodes, array($x0, $y0, $x1_clipped, $y1));
+                    }
+                    if ($x0_clipped !== false) {
+                        array_push($nodes, array($x0_clipped, $y0, $x1, $y1));
+                    }
+                    break;
+
+                default:
+                    throw new \Exception('illegal box fail code '. $fail);
+            }
+
+            switch ($fail) {
+                case 'left':
+                    $x0_clipped = $this->clipLeft($x0, $y0, $x1, $y1);
+                    if ($x0_clipped !== false) {
+                        array_push($nodes, array($x0_clipped, $y0, $x1, $y1));
+                    }
+                    break;
+
+                case 'right':
+                    $x1_clipped = $this->clipRight($x0, $y0, $x1, $y1);
+                    if ($x1_clipped !== false) {
+                        array_push($nodes, array($x0, $y0, $x1_clipped, $y1));
+                    }
+                    break;
+
+                case 'top':
+                    $y0_clipped = $this->clipTop($x0, $y0, $x1, $y1);
+                    if ($y0_clipped !== false) {
+                        array_push($nodes, array($x0, $y0_clipped, $x1, $y1));
+                    }
+                    break;
+
+                case 'bottom':
+                    $y1_clipped = $this->clipBottom($x0, $y0, $x1, $y1);
+                    if ($y1_clipped !== false) {
+                        array_push($nodes, array($x0, $y0, $x1, $y1_clipped));
+                    }
+                    break;
+
+                default:
+                    throw new \Exception('illegal box fail code '. $fail);
+            }
+        }
+
+        return false;
+    }
 }

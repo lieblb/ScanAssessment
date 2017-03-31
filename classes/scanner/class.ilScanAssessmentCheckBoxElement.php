@@ -183,7 +183,7 @@ class ilScanAssessmentCheckBoxElement
 
             $pixels = new ilScanAssessmentCheckBoxAnalyser($im, $x, $y, $threshold);
 
-            $r = $pixels->detectRectangle($threshold);
+            $r = $pixels->detectRectangle();
             if ($r) {
                 return $r;
             }
@@ -216,9 +216,7 @@ class ilScanAssessmentCheckBoxElement
 		$box = $this->detectBox($im, $center_x, $center_y, 100);
 		if ($box) 
 		{
-			list($min, $max) = $box;
-			list($x0, $y0) = $min;
-			list($x1, $y1) = $max;
+			list($x0, $y0, $x1, $y1) = $box;
 			imagerectangle($im, $x0, $y0, $x1, $y1, imagecolorallocate($im, 0, 255, 0));
 			ilScanAssessmentLog::getInstance()->debug(sprintf('Found Borders [%s, %s], [%s, %s].',
 				$x0, $y0, $x1, $y1));
