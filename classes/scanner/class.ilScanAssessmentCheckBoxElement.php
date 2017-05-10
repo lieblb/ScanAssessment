@@ -226,6 +226,17 @@ class ilScanAssessmentCheckBoxElement
 		$size     = array(
 		    $this->getRightBottom()->getX() - $this->getLeftTop()->getX(),
             $this->getRightBottom()->getY() - $this->getLeftTop()->getY());
+
+		// for our normal checkbox size, we expect about 26 pixels for a 300 dpi scan here
+        // (and about 13 pixels for a 150 dpi scan here). since 150 dpi scans fail miserably,
+        // we check for a minimum size of 20 here and warn.
+
+        if($size[0] < 20 || $size[1] < 20)
+        {
+            ilScanAssessmentLog::getInstance()->warn(
+                'WARNING! scan resolution seems to be < 300 dpi, detection quality is very low!');
+        }
+
 		$box      = $this->detectBox($im, $center_x, $center_y, $size, 100);
 		if($box)
 		{
